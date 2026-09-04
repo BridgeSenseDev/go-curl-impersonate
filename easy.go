@@ -74,13 +74,27 @@ var context_map = &contextMap{
 	items: make(map[uintptr]*CURL),
 }
 
-// curl_easy_init - Start a libcurl easy session
-func EasyInit() *CURL {
+// setEmbeddedCACert points CURLOPT_CAINFO at the embedded bundle. EasyInit
+// and Reset both call it: curl_easy_reset clears every option, this one
+// included, and a reused handle must not fall back to whatever store the
+// library was built with.
+func (curl *CURL) setEmbeddedCACert() {
 	certPath, err := getEmbeddedCACertPath()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Could not prepare embedded CA certificate: %v. SSL connections may fail.\n", err)
+		return
 	}
+	if certPath == "" {
+		fmt.Fprintln(os.Stderr, "Error: Embedded CA certificate path is empty. CURLOPT_CAINFO not set.")
+		return
+	}
+	if err := curl.Setopt(OPT_CAINFO, certPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to set CURLOPT_CAINFO to '%s': %v. SSL connections may fail.\n", certPath, err)
+	}
+}
 
+// curl_easy_init - Start a libcurl easy session
+func EasyInit() *CURL {
 	p := CurlEasyInit()
 	if p == nil {
 		if runtime.GOOS == "windows" && CheckLoad() != nil {
@@ -90,16 +104,7 @@ func EasyInit() *CURL {
 	}
 	c := &CURL{handle: p, mallocAllocs: make([]unsafe.Pointer, 0)}
 	context_map.Set(uintptr(p), c)
-
-	if certPath != "" {
-		err = c.Setopt(OPT_CAINFO, certPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: Failed to set CURLOPT_CAINFO to '%s': %v. SSL connections may fail.\n", certPath, err)
-		}
-	} else {
-		fmt.Fprintln(os.Stderr, "Error: Embedded CA certificate path is empty. CURLOPT_CAINFO not set.")
-	}
-
+	c.setEmbeddedCACert()
 	return c
 }
 
@@ -431,6 +436,7 @@ func (curl *CURL) Reset() {
 		curl.writeData = nil
 		curl.readData = nil
 		curl.progressData = nil
+		curl.setEmbeddedCACert()
 	}
 }
 
