@@ -472,7 +472,7 @@ func (curl *CURL) Unescape(url string) string {
 		defer C.free(cURL)
 	}
 
-	var outLength int32
+	var outLength C.int
 	unescapedCURL := CurlEasyUnescape(p, cURL, len(url), unsafe.Pointer(&outLength))
 	if unescapedCURL == nil {
 		return ""
@@ -523,7 +523,10 @@ func (curl *CURL) Getinfo(infoConstant Info) (any, error) {
 		}
 		return goStringSys(cStrPtr), nil
 	case GetCurlInfoLong():
-		var val int32
+		// libcurl writes a C long through this pointer: 8 bytes on LP64
+		// (linux, darwin), 4 on Windows. An int32 here made it zero the 4
+		// bytes after the variable on LP64, the next object on the heap.
+		var val C.long
 		errCode := CurlEasyGetinfoLong(p, infoConstant, unsafe.Pointer(&val))
 		if errCode != E_OK {
 			return nil, newCurlError(errCode)
